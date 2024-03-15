@@ -1,0 +1,275 @@
+#############################################################################################
+
+```{r}
+library(umap)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(dplyr)
+library(tibble)
+```
+
+
+
+
+```{r}
+# Read All predictions and split them in two datasets
+preds <- utils::read.csv(file.path("..", "Data","RF_800_genes_ADASYN_1_predictions.csv"), row.names = 1)
+```
+```{r}
+meta_preds <- utils::read.csv(file.path("..", "Data", "ffpe_hoang_meta.csv"), row.names = 1)
+```
+
+```{r}
+# Get unique classes from meta_preds
+class_values <- unique(meta_preds$Dataset)
+
+# Split preds by classes
+split_preds <- split(preds, meta_preds$Dataset)
+
+# Printing split dataframes
+#print(split_preds)
+# Naming list elements
+names(split_preds) <- class_values
+```
+
+```{r}
+write.csv(as.data.frame(split_preds$FFPE), "RF_800_genes_ADASYN_1_predictions_ffpe.csv")
+write.csv(as.data.frame(split_preds$Hoang), "RF_800_genes_ADASYN_1_predictions_hoang.csv")
+
+```
+
+
+ 
+
+#################################################################################################
+
+```{r}
+# FFPE DATASET
+df <- utils::read.csv(file.path("..", "Data","FFP_2rlog_visualization.csv"), row.names = 1)
+```
+
+
+```{r}
+# Read meta
+hubs <- utils::read.csv(file.path("..", "Data","hubs_genes_govaere.csv"), row.names = 1)
+
+```
+
+```{r}
+# Read predictions FFPE
+pred_ffpe <- utils::read.csv(file.path("..", "Data","RF_800_genes_ADASYN_1_predictions_ffpe.csv"), row.names = 1)
+
+```
+
+
+```{r}
+# Set it as a matrix
+df <- as.matrix(df)
+```
+
+```{r}
+# Cut 14 hub genes for visualization
+df <- df[hubs$hubs,]
+```
+
+```{r}
+df <- t(df)
+```
+
+
+```{r}
+# Seed for reproducibility
+set.seed(1234)
+```
+
+```{r}
+#Perform UMAP on df
+umap_result <- umap(df)
+umap_data <- as.data.frame(umap_result$layout)
+```
+
+
+```{r}
+# See simple plot
+plot(umap_data[,1], umap_data[,2])
+```
+
+
+```{r}
+### Write a function to order cts file using the meta_ordered file rownames
+order_cts <- function(cts, order_vector) {
+  ordered_cts <- cts[order_vector, , drop = FALSE]  # Ensure to keep it as a dataframe
+  return(ordered_cts)
+}
+
+```
+
+```{r}
+pred_ffpe <- order_cts(pred_ffpe, order_vector = rownames(umap_data))
+```
+
+
+```{r}
+# Check if samples have the same order
+rownames(pred_ffpe)==rownames(umap_data)
+```
+
+
+```{r}
+# Add grouping variable as a factor
+umap_data$group <- factor(pred_ffpe$Prediction)
+```
+
+```{r}
+# Change column name
+colnames(umap_data) <- c("V1", "V2", "Patient_subgroups")
+```
+
+```{r}
+# Add "Subgroup_" to each numeric value in the column
+umap_data$Patient_subgroups <- paste("Subgroup_", umap_data$Patient_subgroups, sep = "")
+head(umap_data)
+```
+
+
+```{r}
+Patient_Colors = c(Subgroup_1= "#023FA5", Subgroup_2="#8C94BF", Subgroup_3= "#D2D3DC", Subgroup_4= "#DDD0D2", Subgroup_5= "#C18692", Subgroup_6="#8E063B")
+```
+
+```{r}
+# Create a scatter plot of the UMAP results
+umap_plot_ffpe <- ggplot(umap_data, aes(x = V1, y = V2, color=Patient_subgroups)) +
+  geom_point(size=3.5) +
+  # Add color or other aesthetics based on your data, e.g., cluster colors
+  #aes(color = factor(cluster)) +
+  scale_color_manual(values = Patient_Colors)+
+  # Additional plot customization (e.g., labels, titles, etc.)
+  labs(color="Patient subgroups predictions") +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+
+print(umap_plot_patients)
+```
+
+
+
+```{r}
+# Hoang DATASET
+df <- utils::read.csv(file.path("..", "Data","Hoang_2rlog_visualization.csv"), row.names = 1)
+```
+
+```{r}
+# Hoang predictions
+pred_hoang <- utils::read.csv(file.path("..", "Data","RF_800_genes_ADASYN_1_predictions_hoang.csv"), row.names = 1)
+```
+
+
+
+```{r}
+# Set it as a matrix
+df <- as.matrix(df)
+```
+
+```{r}
+# Cut 14 hub genes for visualization
+df <- df[hubs$hubs,]
+```
+
+```{r}
+df <- t(df)
+```
+
+
+```{r}
+# Seed for reproducibility
+set.seed(1234)
+```
+
+```{r}
+#Perform UMAP on df
+umap_result <- umap(df)
+umap_data <- as.data.frame(umap_result$layout)
+```
+
+
+```{r}
+# See simple plot
+plot(umap_data[,1], umap_data[,2])
+```
+
+
+```{r}
+### Write a function to order cts file using the meta_ordered file rownames
+order_cts <- function(cts, order_vector) {
+  ordered_cts <- cts[order_vector, , drop = FALSE]  # Ensure to keep it as a dataframe
+  return(ordered_cts)
+}
+
+```
+
+```{r}
+pred_hoang <- order_cts(pred_hoang, order_vector = rownames(umap_data))
+```
+
+
+```{r}
+# Check if samples have the same order
+rownames(pred_hoang)==rownames(umap_data)
+```
+
+
+
+```{r}
+# Add grouping variable as a factor
+umap_data$group <- factor(pred_hoang$Prediction)
+```
+
+```{r}
+# Change column name
+colnames(umap_data) <- c("V1", "V2", "Patient_subgroups")
+```
+
+```{r}
+# Add "Subgroup_" to each numeric value in the column
+umap_data$Patient_subgroups <- paste("Subgroup_", umap_data$Patient_subgroups, sep = "")
+head(umap_data)
+```
+
+
+
+```{r}
+# Create a scatter plot of the UMAP results
+umap_hoang <- ggplot(umap_data, aes(x = V1, y = V2, color=Patient_subgroups)) +
+  geom_point(size=3.5) +
+  # Add color or other aesthetics based on your data, e.g., cluster colors
+  #aes(color = factor(cluster)) +
+  scale_color_manual(values = Patient_Colors)+
+  # Additional plot customization (e.g., labels, titles, etc.)
+  labs(color="Patient subgroups predictions") +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+
+print(umap_nas_score)
+```
+
+```{r}
+combined_plot <- grid.arrange(umap_plot_ffpe, umap_hoang, ncol=2)
+cow_plot <- plot_grid(umap_plot_ffpe, umap_hoang, ncol = 2)
+print(combined_plot)
+```
+
+
+```{r}
+#Save plot
+ggsave("Predictions_FFPE_Hoang_plot.png", height = 10, width = 15, dpi = 800, bg="white") 
+
+
+```
+```
+
+

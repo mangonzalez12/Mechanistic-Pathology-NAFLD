@@ -1,0 +1,225 @@
+
+###########################################
+## WGCNA on liver transcriptiomics       ##
+###########################################
+
+```{r}
+library(WGCNA)
+library(DESeq2)
+library(utils)
+library(readr)
+### The following setting is very important
+options(stringsAsFactors = FALSE);
+```
+
+
+
+##################################################################
+#         Read the gene counts table and plot the sample tree    #
+##################################################################
+```{r}
+###Load file
+datExpr<- utils::read.csv(file.path("..", "Data", "Govaere_2rlog.csv"), header = TRUE, row.names = 1)
+# Load metadata
+govaere_meta<-utils::read.csv(file.path("..", "Data","govaere_meta.csv"))
+```
+
+
+```{r}
+## Transpose
+datExpr <- t(datExpr)##Genes as columns
+```
+
+
+#######################################################
+#         Choose soft threshold parameter             #
+#######################################################
+```{r}
+Rs = 0.9
+powers = c(c(1:20), seq(from=22, to=50, by=2))
+```
+
+```{r}
+sft = pickSoftThreshold(datExpr, powerVector = powers, verbose = 5, RsquaredCut = Rs)
+#Scale-free topology fit index as a function of the soft-thresholding power
+#pdf(file="sft.pdf", width=9, height=5);
+par(mfrow=c(1,2));
+cex1=0.9
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)", ylab="Scale Free Topology Model Fit, signed R^2", ylim=c(-1,1))
+     main = paste("Scale independence"));
+abline(h=0.9, col="blue")
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers, cex=cex1, col="red");
+
+WGCNA::plotSoftThreshold(sft, Rs, file=paste(myOutPath, "softThresholdGovaere.pdf", sep = ""))
+```
+
+
+
+#######################################################
+#         Choose soft power and minimum module size   #
+#######################################################
+
+```{r}
+#power = sft$powerEstimate
+#softPower = 10
+#minModuleSize = 30
+softPower = 10
+minModuleSize = 30##30 genes minimum per cluster
+```
+
+
+
+
+#####################################################################
+#          Turn data expression into topological overlap matrix     #
+#####################################################################
+
+```{r}
+adjacency = adjacency(datExpr, power = softPower, type="unsigned")
+TOM = TOMsimilarity(adjacency); # Turn adjacency into topological overlap
+# TOM = TOMsimilarityFromExpr(datExpr, power = power)
+dissTOM = 1 -TOM
+# Plot gene tree
+geneTree = hclust(as.dist(dissTOM), method="average");
+pdf(file = "gene_cluster.pdf", width=12, height=9);
+plot(geneTree, xlab="", sub="", main = "Gene clustering on TOM-based dissimilarity, log2 Govaere",
+     labels=FALSE, hang = 0.04);
+dev.off()
+```
+
+
+
+
+#===============================================================================
+#
+#  Construct modules using adaptive branch pruning of dendrogram
+#
+#=============================================================================
+# Module identification using dynamic tree cut
+# We like large modules (clusters), so we set the minimum module size relatively high:
+# minModuleSize = 30
+```{r}
+dynamicMods = cutreeDynamic(dendro = geneTree, distM = dissTOM, deepSplit = 2,
+                            pamRespectsDendro = FALSE, minClusterSize = 30)
+table(dynamicMods)
+length(table(dynamicMods))
+# Convert numeric labels into colors
+dynamicColors = labels2colors(dynamicMods)
+length(table(dynamicColors))
+# Plot the dendrogram and colors underneath
+pdf(file="Govaere, 44 clusters, logdata.pdf", width = 8, height = 6);
+plotDendroAndColors(geneTree, dynamicColors, "Dynamic Tree Cut", dendroLabels = FALSE,
+                    hang = 0.03, addGuide = TRUE, guideHang = 0.05, main= "Gene Dendrogram with 41 modules, Govaere ")
+
+dev.off()
+```
+
+
+
+
+
+
+#===============================================================================
+#
+#  Merge modules which are similar
+#
+#===============================================================================
+
+```{r}
+
+# Merge close modules based on correlation of eigen genes from modules
+MEDissThres=0.20
+abline(h=MEDissThres, col = "red")
+merge = mergeCloseModules(datExpr, dynamicColors, cutHeight = MEDissThres, verbose = 3) 
+#merge = mergeCloseModules(datExpr, dynamicColors, corFnc = cor, corOptions = list(use='p'), verbose = 3) 
+mergedColors = merge$colors  
+mergedMEs = merge$newMEs  
+# Plot merged module tree
+pdf(file = "Govaere merged_Module_Tree_15_clusters.pdf", width = 12, height = 9)  
+plotDendroAndColors(geneTree, cbind(dynamicColors, mergedColors), 
+                    c("Dynamic Tree Cut", "Merged dynamic"), dendroLabels = FALSE, 
+                    hang = 0.03, addGuide = TRUE, guideHang = 0.05)  
+dev.off()
+```
+
+
+
+```{r}
+write.table(merge$oldMEs,file="oldMEs.txt");
+write.table(merge$newMEs,file="newMEs.txt");
+```
+
+
+
+
+
+
+#===============================================================================
+#
+## Calculate module membership score for each gene (correlation to module eigengene)
+#
+#===============================================================================
+```{r}
+table(merge$colors)
+mergedColors = merge$colors
+moduleColors = mergedColors
+
+modMembership = as.matrix(cor(datExpr, merge$newMEs, use = 'p'))
+modMembershipP = as.matrix(corPvalueStudent(modMembership, nrow(datExpr)))
+
+##Create the starting data frame
+geneInfo0 = data.frame(moduleColor = moduleColors,
+                       modMembershipP)
+
+write.csv(geneInfo0, "govaere_15 clusters_logdata__30 genes_per cluster.csv")
+
+```
+
+
+#===============================================================================
+#
+#  Plot the heatmap of module eigen-genes (MEs) and samples
+#
+#===============================================================================
+```{r}
+library("pheatmap")
+
+# Heatmap of old module eigen-genes and samples
+pdf(file="oldMEs, 44 genes cluster and 0.8 corre.pdf",heigh=80,width=20)
+row.names(merge$oldMEs)=names(dataset)
+pheatmap(merge$oldMEs,cluster_col=T,cluster_row=T,show_rownames=T,show_colnames=T,fontsize=6)
+dev.off()
+# Heatmap of new module eigen-genes and samples
+pdf(file="newMEs,  15 genes cluster and 0.8 corre.pdf",heigh=60,width=20)
+row.names(merge$newMEs)=names(dataset)
+pheatmap(merge$newMEs,cluster_col=T,cluster_row=T,show_rownames=T,show_colnames=T,fontsize=6)
+dev.off()
+```
+
+
+
+
+
+#######################################################################################
+#######################################################################################
+
+```{r}
+hubs = chooseTopHubInEachModule(datExpr = datExpr, colorh = moduleColors, omitColors = "grey", power = 9, type = "signed")
+tabla = data.frame(hubs)
+write.csv(tabla, "hubs_genes_govaere.csv")
+```
+
+
+#######################################################################################
+
+```{r}
+x<-datExpr[,annot$hubs]
+x
+annot
+colnames(x)<-annot$Gene_symbol
+top_hubs_govaere<-write.csv(x, "Hub genes for heatmap.csv")
+```
+
+

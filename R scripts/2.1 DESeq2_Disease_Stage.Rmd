@@ -1,0 +1,181 @@
+---
+title: "DESeq2 govaere"
+author: "Jelle van den Berg"
+date: "2023-11-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load packages
+library(utils)
+library(readr)
+library(DESeq2)
+library(pheatmap)
+```
+
+```{r}
+#load data
+counts <- utils::read.csv(file.path("..", "Data", "Primary data", "raw_counts.csv"), header = TRUE, row.names = 1)
+meta <- utils::read.csv(file.path("..", "Data", "Primary data", "raw_meta.csv"), row.names = 1)
+```
+
+```{r}
+colnames(meta)[colnames(meta) == "Sample"] <- "Patient_ID"
+```
+
+```{r}
+#convert column to factor
+meta$Fibrosis_stage <- as.factor(meta$Fibrosis_stage)
+```
+
+```{r}
+#round the data
+round_counts <- round(counts, digits = 0)
+```
+
+```{r}
+#perform Deseq2
+dds <- DESeqDataSetFromMatrix(countData=round_counts, 
+                              colData=meta, 
+                              design=~Fibrosis_stage)
+Results <- DESeq(dds)
+```
+
+```{r}
+#rename the results and save them in a vector
+onevszero <- results(Results, name = "Fibrosis_stage_1_vs_0")
+twovszero <- results(Results, name = "Fibrosis_stage_2_vs_0")
+threevszero <- results(Results, name = "Fibrosis_stage_3_vs_0")
+fourvszero <- results(Results, name = "Fibrosis_stage_4_vs_0")
+```
+
+```{r}
+#convert result vectors to dataframes
+comparison1 <- as.data.frame(onevszero)
+comparison2 <- as.data.frame(twovszero)
+comparison3 <- as.data.frame(threevszero)
+comparison4 <- as.data.frame(fourvszero)
+```
+
+```{r}
+# Remove rows with NA in the 'log2FoldChange' column and replace NA's in padj with 1
+comparison1 <- comparison1[complete.cases(comparison1$log2FoldChange), ]
+comparison1$padj <- ifelse(is.na(comparison1$padj), 1, comparison1$padj)
+
+comparison2 <- comparison2[complete.cases(comparison2$log2FoldChange), ]
+comparison2$padj <- ifelse(is.na(comparison2$padj), 1, comparison2$padj)
+
+comparison3 <- comparison3[complete.cases(comparison3$log2FoldChange), ]
+comparison3$padj <- ifelse(is.na(comparison3$padj), 1, comparison3$padj)
+
+comparison4 <- comparison4[complete.cases(comparison4$log2FoldChange), ]
+comparison4$padj <- ifelse(is.na(comparison4$padj), 1, comparison4$padj)
+```
+
+```{r}
+# combine the comparison frames to make volcano plot
+all_comparisons <- list(comparison1, comparison2, comparison3, comparison4)
+```
+
+```{r}
+#visualise the output in a volcano plot
+#Create a list to store individual plots
+plot_list <- list()
+
+#make plot
+tiff(filename = file.path("..", "Result outputs", "DESeq2", paste0(format(Sys.time(), "%Y%m%d"),"_DESeq2_comparison_volcanoes.tiff")), width = 200, height = 200, res = 600, units = "mm")
+for (i in seq_along(all_comparisons)) {
+  p <- ggplot(all_comparisons[[i]], aes(x = log2FoldChange, y = -log10(padj))) +
+    geom_point(aes(color = case_when(
+      padj < 0.05 & log2FoldChange < 0 ~ "#273871",
+      padj < 0.05 & log2FoldChange > 0 ~ "#ea4c3b",
+      TRUE ~ "grey"
+    )), alpha = 0.7) +
+    scale_color_identity() +
+    labs(title = paste("Fibrosis stage", i, "vs", 0),
+        x = ifelse(i >= 3, "Log2(Fold Change)", ""),  # Show X-label for the bottom two plots
+        y = ifelse(i %% 2 == 1, "-log10(Adjusted P-value)", ""))+  # Show Y-label for the left two plots
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue") +
+    annotate("text", x = max(all_comparisons[[i]]$log2FoldChange), y = -log10(0.05), 
+             label = "P-adj = 0.05", vjust = -0.5, hjust = 1, color = "blue") +
+    theme_bw() +
+    # Remove y-axis label for the 2nd and 4th plots
+    # Format y-axis labels without decimals
+    scale_y_continuous(labels = scales::number_format(accuracy = 1))
+
+  # Store each plot in the list
+  plot_list[[i]] <- p
+}
+
+# Arrange and combine the plots using cowplot
+combined_plots <- plot_grid(plotlist = plot_list, nrow = 2, ncol = 2)
+
+# Print or save the combined plot
+print(combined_plots)
+```
+
+```{r}
+# make the rownames into a new column
+comparison1 <- tibble::rownames_to_column(comparison1, "Gene")
+comparison2 <- tibble::rownames_to_column(comparison2, "Gene")
+comparison3 <- tibble::rownames_to_column(comparison3, "Gene")
+comparison4 <- tibble::rownames_to_column(comparison4, "Gene")
+```
+
+```{r}
+# extracting all the significant genes in each comparison dataframe and listing them together
+comparison_list <- list(comparison1, comparison2, comparison3, comparison4)
+gene_lists <- list()
+
+for (i in seq_along(comparison_list)) {
+  gene_lists[[i]] <- comparison_list[[i]] %>%
+    filter(padj < 0.05) %>%
+    rowwise()
+}
+
+# Print the resulting data frames
+for (i in seq_along(gene_lists)) {
+  cat("Gene list", i, ":\n")
+  print(gene_lists[[i]])
+  cat("\n")
+}
+```
+
+```{r}
+# Combine all significant genes into a single data frame
+all_significant_genes <- bind_rows(gene_lists, .id = "Comparison")
+```
+
+```{r}
+# rename factor levels for the comparison for easier identification of genes
+all_significant_genes$Comparison <- as.factor(all_significant_genes$Comparison)
+levels(all_significant_genes$Comparison) <- c("1vs0", "2vs0", "3vs0", "4vs0")
+```
+
+```{r}
+# check for total amount of unique genes
+length(unique(all_significant_genes$Gene))
+```
+
+```{r}
+#make MA-plot
+plotMA(onevszero, main = "MA Plot of DESeq2 Results")
+```
+
+```{r}
+# Extract top DEGs (for example, top 100)
+top_DEGs <- head(onevszero[order(onevszero$padj),], 100)
+
+# Extract count data for top DEGs
+count_matrix <- counts(dds)[rownames(top_DEGs), ]
+
+# Create a heatmap
+pheatmap(log2(count_matrix + 1), cluster_rows = TRUE, cluster_cols = FALSE,
+         main = "Heatmap of Top DEGs")
+```
+
+

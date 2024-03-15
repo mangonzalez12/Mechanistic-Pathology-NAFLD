@@ -1,0 +1,208 @@
+
+## Load files 
+```{r}
+library(umap)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(dplyr)
+library(tibble)
+library(DESeq2)
+library(caret)
+library(pheatmap)
+library(colorspace)
+library(VennDiagram)
+library(readxl)
+library(RColorBrewer)
+library(colorspace)
+library(umap)
+library(gridExtra)
+library(ggplotify)
+library(patchwork)
+library(circlize)
+library(ComplexHeatmap)
+
+```
+
+
+
+#######################################################################################
+# Plot in a heatmap the pathways/upstream regulators in all the gene clusters (1-14)
+```{r}
+canon <- utils::read.csv(file.path("..", "Data","02b2.IPAout.CanoP.Gene modules for IPA_Govaere_14 modules.csv"), header = TRUE, row.names = 1)
+upstream <- utils::read.csv(file.path("..", "Data","02b3.IPAout.UpstrP.Gene modules for IPA_Govaere_14 modules_500.csv"), header = TRUE, row.names = 1)
+```
+
+```{r}
+# Select top pathways
+top_pathways <- function(canon_df, threshold_significance = 100) {
+  # Calculate row sums of canon_df to rank pathways
+  pathway_ranks <- rowSums(canon_df)
+  
+  # Select top pathways based on threshold_significance
+  top_pathways <- names(head(sort(pathway_ranks, decreasing = TRUE), threshold_significance))
+  # Filter canon with top pathways
+  canon_filtered <- canon_df[top_pathways,]
+  
+  return(canon_filtered)
+}
+```
+
+
+```{r}
+canon <- top_pathways(canon, 50)
+upstream <- top_pathways(upstream, 50)
+rownames(canon)
+```
+
+```{r}
+# Take top 50 pathways from canon
+#canon <- head(canon, 50)
+# Take top 50 upstream regulators from upstream
+#upstream <- head(upstream,50)
+# Scale the canon dataframe with range (0-1)
+preproc <- preProcess(canon, method = c("range"))
+sc_canon <- predict(preproc, newdata = canon)
+
+```
+
+```{r}
+# Scale the upstream dataframe with range (0-1)
+preproc1 <- preProcess(upstream, method = c("range"))
+sc_upstream <- predict(preproc1, newdata = upstream)
+```
+
+```{r}
+# Color
+pal <- colorRampPalette(c("white", "blue"))
+palette <- pal(10)
+```
+
+```{r}
+# Plot size canon file 12 x 13, respectively is good
+width_canon = 12
+height_canon =13
+```
+
+#Top100
+#width_canon = 15
+#height_canon =40
+
+#Top200
+#width_canon = 15
+#height_canon =80
+
+```{r}
+colnames_clusters <- c("Module 1", "Module 2", "Module 3", "Module 4", "Module 5", "Module 6", "Module 7", "Module 8", "Module 9", "Module 10", "Module 11", "Module 12", "Module 13", "Module 14")
+```
+
+```{r}
+# Reset colnames of both dataframes with gene module names
+colnames(sc_canon) <- colnames_clusters
+colnames(sc_upstream) <- colnames_clusters
+```
+
+
+```{r}
+#First plot
+
+# Heatmap Canon
+ht_canon <-pheatmap::pheatmap(
+  sc_canon,
+  cluster_rows=F,
+  show_rownames=T,
+  cluster_cols=F,
+  border_color = "grey60", 
+  color = colorRampPalette(c("white", "navy blue"))(20), ## ann_colors = defined for pathology scores above
+  fontsize_row = 11,
+  fontsize_col = 11, 
+  fontsize = 12,
+  cellwidth = 10,
+  cellheight = 10,
+  width = width_canon,
+  height = height_canon,
+  legend = FALSE,
+  main = "A)     Canonical Pathways in gene modules"
+  )
+
+pdf("Canonical_Pathways_IPA_gene_modules.pdf", width = width_canon, height = height_canon)
+print(ht_canon)
+dev.off()
+
+print(ht_canon)
+
+# Save a PNG plot
+ggsave("Canonical_Pathways_IPA_gene_modules.png", plot = ht_canon, width = width_canon, height = height_canon, dpi=400)
+```
+
+```{r}
+#Second plot
+# Plot size upstream file
+width_upstream = 6
+height_upstream =13
+
+# Convert dataframe to matrix
+sc_upstream <- as.matrix(sc_upstream)
+sc_upstream
+# Heatmap upstream
+ht_upstream <-pheatmap::pheatmap(
+  sc_upstream,
+  cluster_rows=F,
+  show_rownames=T,
+  cluster_cols=F,
+  border_color = "grey60", 
+  color = colorRampPalette(c("white", "navy blue"))(20), ## ann_colors = defined for pathology scores above
+  fontsize_row = 11,
+  fontsize_col = 11, 
+  fontsize = 12,
+  cellwidth = 10,
+  cellheight = 10,
+  width = width_upstream,
+  height = height_upstream,
+  legend = TRUE,
+  main = "B)     Upstream regulators in gene modules"
+)
+# Plot upstream
+print(ht_upstream)
+
+# Save upstream as PDF
+pdf("Upstream_IPA_gene_modules.pdf", width = width_upstream, height = height_upstream)
+print(ht_upstream)
+dev.off()
+
+# Save a PNG plot
+ggsave("Upstream_IPA_gene_modules.png", plot = ht_upstream, width = width_upstream, height = height_upstream, dpi=400)
+```
+
+
+
+
+
+
+```{r}
+#Make a combined plot
+# Arrange the two heatmaps 
+# Save plots as ggplots with ggplotify package
+p1 <- as.ggplot(ht_canon, hjust = 0, vjust = 0)
+p2 <- as.ggplot(ht_upstream, hjust = 0, vjust = 0)
+
+# Use patchwork to put them together
+combined_plot <- p1 + theme(plot.margin = unit(c(0,192,0,0), "pt")) + p2 + 
+  plot_layout(widths = c(4, -1.9,4.5),guides = "collect")& theme(legend.position = "top")
+# Print plot
+print(combined_plot)
+
+
+width= 20
+height=12
+
+# Save upstream as PDF
+pdf("Combined plot canon and upstream 14 gene modules.pdf", width = width, height = height)
+print(combined_plot)
+dev.off()
+# Save a PNG plot
+ggsave("Combined plot canon and upstream 14 gene modules.png", plot = combined_plot, width = width, height = height, dpi=1000)
+```
+
+
+

@@ -1,0 +1,224 @@
+---
+title: "DESEQ2 redo"
+output: html_document
+date: "2023-11-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load packages
+library(utils)
+library(readr)
+library(dplyr)
+library(DESeq2)
+library(ggplot2)
+library(cowplot)
+library(tibble)
+library(writexl)
+```
+
+```{r}
+#load data
+counts <- utils::read.csv(file.path("..", "Data", "govaere_v3.csv"), header = TRUE, row.names = 1)
+patient_clusters <- utils::read.csv(file.path("..", "Data", "subgroups 6 WGCNA r2log transformation.csv"), header = TRUE, row.names = 1)
+meta <- utils::read.csv(file.path("..", "Data", "govaere_meta.csv"), row.names = 1)
+```
+
+```{r}
+# add deseq2 definer columns to cluster dataset
+for(i in 1:6) {
+  col_name <- paste("comparison", i, sep = "")
+  patient_clusters <- patient_clusters %>%
+    mutate(!!col_name := ifelse(subgroups  == i, 1, 2))
+}
+
+# Convert all 'comparison' columns to factors
+patient_clusters <- patient_clusters %>%
+  mutate_at(vars(starts_with("comparison")), factor, levels = c("1", "2"))
+
+patient_clusters$subgroups <- as.factor(patient_clusters$subgroups)
+
+patient_clusters
+```
+
+```{r}
+# deseq works only with rounded data. so we round
+round_counts <- round(counts, digits = 0)
+```
+
+```{r}
+# Extract the row names from the 'cluster' column in for ordering
+row_names <- rownames(patient_clusters)
+
+# Order the row names alphabetically
+ordered_row_names <- row_names[order(row_names)]
+
+# Reorder the rows of the 'patient_clusters' dataframe based on the ordered row names in the 'cluster' column
+patient_clusters <- patient_clusters[ordered_row_names, , drop = FALSE]
+```
+
+```{r}
+library(DESeq2)
+
+# Assuming you have a list of design formulas
+design_formulas <- list(
+  comparison1 = ~ comparison1,
+  comparison2 = ~ comparison2,
+  comparison3 = ~ comparison3,
+  comparison4 = ~ comparison4,
+  comparison5 = ~ comparison5,
+  comparison6 = ~ comparison6
+)
+
+# List to store DESeq results
+results_list <- list()
+
+# Loop through each design formula
+for (design_name in names(design_formulas)) {
+  # Create DESeqDataSet
+  dds <- DESeqDataSetFromMatrix(countData = round_counts,
+                                colData = patient_clusters,
+                                design = design_formulas[[design_name]])
+
+  # Perform DESeq analysis
+  assign(paste0("Results_", design_name), DESeq(dds))
+}
+```
+
+```{r}
+#convert all the outputs to dataframes for further analysis, combine into list
+onevsall <- as.data.frame(results(Results_comparison1, name = "comparison1_2_vs_1"))
+twovsall <- as.data.frame(results(Results_comparison2, name = "comparison2_2_vs_1"))
+threevsall <- as.data.frame(results(Results_comparison3, name = "comparison3_2_vs_1"))
+fourvsall <- as.data.frame(results(Results_comparison4, name = "comparison4_2_vs_1"))
+fivevsall <- as.data.frame(results(Results_comparison5, name = "comparison5_2_vs_1"))
+sixvsall <- as.data.frame(results(Results_comparison6, name = "comparison6_2_vs_1"))
+combination_list <- list(onevsall,twovsall, threevsall, fourvsall, fivevsall, sixvsall)
+```
+
+```{r}
+#iterate over the list and: 
+for (i in seq_along(combination_list)) {
+  current_df <- combination_list[[i]]
+  
+  # Remove rows with NA in log2FoldChange
+  current_df <- current_df[complete.cases(current_df$log2FoldChange), ]
+  
+  # update
+  combination_list[[i]] <- current_df
+}
+```
+
+```{r}
+# Create a list to store counts for each data frame
+gene_counts <- vector("list", length(combination_list))
+
+for (i in seq_along(combination_list)) {
+  current_df <- combination_list[[i]]
+  
+  # Filter rows based on criteria
+  filtered_genes <- current_df[current_df$padj < 0.05 & ((abs(current_df$log2FoldChange) > 0.5)|(abs(current_df$log2FoldChange) < -0.5)),]
+
+  # Count the number of genes that fit the criteria
+  gene_counts[[i]] <- nrow(filtered_genes)
+}
+
+# Display the counts for each data frame
+for (i in seq_along(gene_counts)) {
+  cat("Data Frame", i, ":", gene_counts[[i]], "genes meet the criteria\n")
+}
+```
+
+```{r}
+# rename the dataframes in the list so we can label them in the graphs
+new_names <- c("One_vs_All", "Two_vs_All", "Three_vs_All", "Four_vs_All", "Five_vs_All", "Six_vs_All")
+names(combination_list) <- new_names
+```
+
+```{r}
+# save the Full_gene list with all the p-values for later
+
+# Iterate over each dataframe in the list
+#for (i in seq_along(combination_list)) {
+  # Extract row names and add as a column named 'gene'
+#  combination_list[[i]]$Gene <- rownames(combination_list[[i]])
+  
+  # Remove row names from the dataframe
+#  rownames(combination_list[[i]]) <- NULL
+#}
+
+# save the file as excel
+#write_xlsx(combination_list, path = file.path("..", "Data","Biopsy data", "Gene lists", "Full_gene_list.xlsx"))
+```
+
+```{r}
+# Create a list to store individual plots
+plot_list <- list()
+
+# Make plot
+tiff(filename = file.path("..", "Result outputs", "DESeq2", paste0(format(Sys.time(), "%Y%m%d"),"_DESeq2_Cluster_volcanoes_-0.6,0.6,0.01.tiff")), width = 200, height = 300, res = 600, units = "mm")
+for (i in seq_along(combination_list)) {
+  comparison_name <- names(combination_list)[i]  # Get the comparison name
+
+  # Create a volcano plot for each comparison
+  p <- ggplot(combination_list[[i]], aes(x = log2FoldChange, y = -log10(padj))) +
+    geom_point(aes(color = ifelse(padj < 0.05 & abs(log2FoldChange) > 0.5 & log2FoldChange > 0.5, "SignificantAbove", 
+                                   ifelse(padj < 0.05 & abs(log2FoldChange) > 0.5 & log2FoldChange < -0.5, "SignificantBelow", 
+                                          "Non-significant"))), 
+               alpha = 0.5, show.legend = FALSE) +
+    scale_color_manual(values = c("SignificantAbove" = "#ea4c3b", "SignificantBelow" = "#273871", "Non-significant" = "grey")) +
+    labs(title = comparison_name,
+          x = ifelse(i %/% 5 == 1, "Log2(Fold Change)", ""),  # Set X-label for bottom plots only
+          y = ifelse(i %% 2 == 1, "-log10(Adjusted P-value)", "")) +  # Set Y-label for leftmost plots only
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
+    geom_vline(xintercept = c(-0.5, 0.5), linetype = "dashed", color = "black") +
+    annotate("text", x = max(combination_list[[i]]$log2FoldChange), y = -log10(0.05), 
+             label = "Padj = 0.05", vjust = 1.5, hjust = 0.9, color = "black") +  # Label for the hline
+    scale_y_continuous(labels = scales::number_format(accuracy = 1)) +
+    theme_bw()
+
+  # Add each plot to the list
+  plot_list[[i]] <- p
+}
+
+# Combine the plots into a grid using cowplot with 3 rows and 2 columns
+combined_plots <- plot_grid(plotlist = plot_list, nrow = 3, ncol = 2)
+
+# Display the combined plots
+combined_plots
+```
+
+```{r}
+#extract genes according to following criteria:
+gene_lists <- list()
+
+for (df_name in names(combination_list)) {
+  # Extract genes with padj <= 0.05, log2FoldChange > 1, log2FoldChange < -1, and without NA values in padj column
+  significant_genes <- combination_list[[df_name]][complete.cases(combination_list[[df_name]]$padj) &
+                            combination_list[[df_name]]$padj <= 0.05 &
+                            ((abs(combination_list[[df_name]]$log2FoldChange) > 0.5) | (abs(combination_list[[df_name]]$log2FoldChange) < -0.5)),
+]
+  
+  # Store the filtered genes in the gene_lists
+  gene_lists[[df_name]] <- significant_genes
+}
+```
+
+```{r}
+#change column names in the list
+# Loop through each dataframe in gene_lists
+for (df_name in names(gene_lists)) {
+  # Convert row names to a column named 'Gene'
+  gene_lists[[df_name]] <- gene_lists[[df_name]] %>%
+    rownames_to_column(var = "Gene")
+}
+```
+
+```{r}
+# Export each dataframe within gene_lists to an Excel file
+#write_xlsx(gene_lists, path = file.path("..", "Data", "significant_gene_list_low_cut-off.xlsx"))
+```
+

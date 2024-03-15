@@ -1,0 +1,184 @@
+#############################################################################################
+
+```{r}
+library(umap)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(dplyr)
+library(tibble)
+```
+
+ 
+
+#################################################################################################
+
+```{r}
+# Genes for heatmap using 14 hub genes
+df <- utils::read.csv(file.path("..", "Data","Hub genes for heatmap (clustering)_Govaere from WGCNA output.csv"), row.names = 1)
+```
+
+
+```{r}
+# Read meta
+meta <- utils::read.csv(file.path("..", "Data","govaere_meta.csv"), row.names = 1)
+
+```
+
+```{r}
+# Read meta
+subgroups <- utils::read.csv(file.path("..", "Data","subgroups 6 WGCNA r2log transformation.csv"), row.names = 1)
+
+```
+
+
+```{r}
+# Set it as a matrix
+df <- as.matrix(df)
+```
+
+```{r}
+# Seed for reproducibility
+set.seed(1234)
+```
+
+```{r}
+#Perform UMAP on df
+umap_result <- umap(df)
+umap_data <- as.data.frame(umap_result$layout)
+```
+
+
+```{r}
+# See simple plot
+plot(umap_data[,1], umap_data[,2])
+```
+
+
+```{r}
+### Write a function to order cts file using the meta_ordered file rownames
+order_cts <- function(cts, order_vector) {
+  ordered_cts <- cts[order_vector, , drop = FALSE]  # Ensure to keep it as a dataframe
+  return(ordered_cts)
+}
+
+```
+
+```{r}
+meta <- order_cts(meta, order_vector = rownames(umap_data))
+```
+
+
+
+```{r}
+# Check if samples have the same order
+rownames(meta)==rownames(umap_data)
+```
+
+
+
+```{r}
+# Add grouping variable as a factor
+umap_data$group <- factor(meta$Subgroup)
+```
+
+```{r}
+# Change column name
+colnames(umap_data) <- c("V1", "V2", "Patient_subgroups")
+```
+
+
+```{r}
+#Add fibrosis score 
+umap_data$Fibrosis_label <- factor(meta$Fibrosis_label)
+```
+
+```{r}
+#Add  nas scores
+umap_data$nas_score <- factor(meta$nas_score)
+```
+
+
+
+
+
+```{r}
+# Choose color for 6 patient subgroups
+nas_score = c(nas_score_0 = "#F4FAFE", nas_score_1 = "#DEEEF7", nas_score_2 = "#C1DBEC", nas_score_3 = "#A1C4E0", nas_score_4 = "#7FABD3", nas_score_5 = "#5C90C6" , nas_score_6 = "#3573B9",  nas_score_7 = "#305596",  nas_score_8 = "#273871")
+Fibrosis_label = c(Fibrosis_0= "#FADDC3",Fibrosis_1= "#F9C29C", Fibrosis_2= "#F6A173", Fibrosis_3= "#F17B51", Fibrosis_4= "#EA4C3B")
+```
+
+```{r}
+Patient_Colors = c(Subgroup_1= "#023FA5", Subgroup_2="#8C94BF", Subgroup_3= "#D2D3DC", Subgroup_4= "#DDD0D2", Subgroup_5= "#C18692", Subgroup_6="#8E063B")
+```
+
+```{r}
+# Create a scatter plot of the UMAP results
+umap_plot_patients <- ggplot(umap_data, aes(x = V1, y = V2, color=Patient_subgroups)) +
+  geom_point(size=3.6) +
+  # Add color or other aesthetics based on your data, e.g., cluster colors
+  #aes(color = factor(cluster)) +
+  scale_color_manual(values = Patient_Colors)+
+  # Additional plot customization (e.g., labels, titles, etc.)
+  labs(color="Patient subgroups") +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+
+print(umap_plot_patients)
+```
+
+```{r}
+
+# Create a scatter plot of the UMAP results
+umap_nas_score <- ggplot(umap_data, aes(x = V1, y = V2, color=nas_score)) +
+  geom_point(size=3.6) +
+  # Add color or other aesthetics based on your data, e.g., cluster colors
+  #aes(color = factor(cluster)) +
+  scale_color_manual(values = nas_score)+
+  # Additional plot customization (e.g., labels, titles, etc.)
+  labs(color="Patient subgroups and NAS score") +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+
+print(umap_nas_score)
+```
+
+
+
+```{r}
+
+# Create a scatter plot of the UMAP results
+umap_f_score <- ggplot(umap_data, aes(x = V1, y = V2, color=umap_merged$Fibrosis_label)) +
+  geom_point(size=3.6) +
+  # Add color or other aesthetics based on your data, e.g., cluster colors
+  #aes(color = factor(cluster)) +
+  scale_color_manual(values = Fibrosis_label)+
+  # Additional plot customization (e.g., labels, titles, etc.)
+  labs(color="Fibrosis label") +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  theme_minimal() +
+  theme(plot.title = element_text(size = 14))
+
+print(umap_f_score)
+```
+
+
+```{r}
+combined_plot <- grid.arrange(umap_plot_patients, umap_f_score, ncol=2)
+cow_plot <- plot_grid(umap_plot_patients, umap_f_score, ncol = 2)
+print(combined_plot)
+```
+```{r}
+#Save plot
+ggsave("Patient subgroups and fibrosis score.png", height = 10, width = 15, dpi = 800, bg="white") 
+
+```
+
+
+
+

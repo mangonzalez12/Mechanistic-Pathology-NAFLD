@@ -1,0 +1,192 @@
+
+## Load files 
+```{r}
+library(umap)
+library(ggplot2)
+library(gridExtra)
+library(cowplot)
+library(dplyr)
+library(tibble)
+library(DESeq2)
+library(caret)
+library(pheatmap)
+library(colorspace)
+library(VennDiagram)
+library(readxl)
+library(RColorBrewer)
+library(colorspace)
+library(umap)
+library(gridExtra)
+library(ggplotify)
+library(patchwork)
+library(circlize)
+library(ComplexHeatmap)
+
+```
+
+
+
+```{r}
+cts <- utils::read.csv(file.path("..", "Data", "Govaere_2rlog.csv"), header = TRUE, row.names = 1)
+```
+```{r}
+# Load metadata
+meta <- utils::read.csv(file.path("..", "Data","govaere_meta.csv"), row.names = 1)
+```
+
+
+```{r}
+
+## Annotation selected genes (ENS id)
+annot <- utils::read.csv(file.path("..", "Data","hubs_genes_govaere.csv"), row.names = 1, header = TRUE)
+```
+```{r}
+x <- as.character(annot$hubs)
+df <- cts[x,]
+dim(df)
+df
+```
+
+```{r}
+## Identify 6 subgroups of patients
+## Heatmap
+ht <-pheatmap::pheatmap(
+  df,
+  cluster_rows=T,
+  show_rownames=T,
+  show_colnames = F,
+  cluster_cols=T,
+  cutree_cols = 6)
+```
+
+
+```{r}
+# Write file with subgroups
+### Cut heatmap to get the patients in each of the subgroups
+subgroups<- cutree(ht$tree_col, k=6)
+subgroups <- data.frame(subgroups)
+head(subgroups)
+table(subgroups)
+write.csv(subgroups, "subgroups 6 WGCNA r2log transformation.csv")
+```
+
+
+
+
+```{r}
+# Make a nice heatmap with names and metadata, use df and transpose
+df <- t(df)
+```
+
+
+```{r}
+# Choose gene names for the plot
+select_genes <- annot$Hub_gene
+select_genes
+```
+
+```{r}
+#Check order
+colnames(df)==annot$hubs
+```
+
+```{r}
+# Add as gene names
+colnames(df) <- select_genes
+```
+
+```{r}
+#Optional save the data to create heatmap 
+#write.csv(df, "Hub genes for heatmap (clustering)_Govaere from WGCNA output.csv")
+```
+
+
+```{r}
+subgroups <- utils::read.csv(file.path("..", "Data","subgroups 6 WGCNA r2log transformation.csv"), row.names = 1, header = TRUE)
+```
+
+
+```{r}
+# Add subgroups to metafile for heatmap 
+rownames(subgroups)==rownames(meta)
+```
+
+```{r}
+meta$Patient_subgroups <- subgroups$subgroups
+```
+
+```{r}
+colnames(meta)
+```
+
+```{r}
+# Add "Subgroup_" to each numeric value in the column
+meta$Patient_subgroups <- paste("Subgroup_", meta$Patient_subgroups, sep = "")
+head(meta)
+```
+
+```{r}
+# Filter meta
+keep<-c("nas_score", "Fibrosis_label", "Patient_subgroups")#, "Sample", "Cluster_assignment", "cluster")
+meta<- meta[,keep]
+
+colnames(meta)
+```
+
+```{r}
+# Coloring
+
+### 5 levels Fibrosis score, 9 levels NAS-score colors and 6 patient cluster colors
+ann_colors <-list(
+  nas_score = c(nas_score_0 = "#F4FAFE", nas_score_1 = "#DEEEF7", nas_score_2 = "#C1DBEC", nas_score_3 = "#A1C4E0", nas_score_4 = "#7FABD3", nas_score_5 = "#5C90C6" , nas_score_6 = "#3573B9",  nas_score_7 = "#305596",  nas_score_8 = "#273871"),
+  Fibrosis_label = c(Fibrosis_0= "#FADDC3",Fibrosis_1= "#F9C29C", Fibrosis_2= "#F6A173", Fibrosis_3= "#F17B51", Fibrosis_4= "#EA4C3B"),
+  Patient_subgroups = c(Subgroup_1= "#023FA5", Subgroup_2="#8C94BF", Subgroup_3= "#D2D3DC", Subgroup_4= "#DDD0D2", Subgroup_5= "#C18692", Subgroup_6="#8E063B")
+)
+# Colors
+#nas_score = c(nas_score_0 = "#F4FAFE", nas_score_1 = "#DEEEF7", nas_score_2 = "#C1DBEC", nas_score_3 = "#A1C4E0", nas_score_4 = "#7FABD3", nas_score_5 = "#5C90C6" , nas_score_6 = "#3573B9",  nas_score_7 = "#305596",  nas_score_8 = "#273871")
+#Fibrosis_label = c(Fibrosis_0= "#FADDC3",Fibrosis_1= "#F9C29C", Fibrosis_2= "#F6A173", Fibrosis_3= "#F17B51", Fibrosis_4= "#EA4C3B")
+#Patient_subgroups = c(Subgroup_1= "#023FA5", Subgroup_2="#8C94BF", Subgroup_3= "#D2D3DC", Subgroup_4= "#DDD0D2", Subgroup_5= "#C18692", Subgroup_6="#8E063B")
+
+```
+
+
+
+```{r}
+df <- t(df)
+dim(df)
+```
+
+
+```{r}
+#Final heatmap FIGURE 2
+## Heatmap
+ht <-pheatmap::pheatmap(
+  df,
+  cluster_rows=T,
+  show_rownames=T,
+  show_colnames = F,
+  cluster_cols=T,
+  height = 50, 
+  width = 100, 
+  border_color = "grey60", 
+  clustering_distance_rows = "euclidean", 
+  clustering_distance_cols = "euclidean", 
+  annotation = meta,
+  annotation_colors = ann_colors, ## ann_colors = defined for pathology scores above
+  labels_row = select_genes, 
+  fontsize_row = 15,
+  cutree_cols = 6, 
+  fontsize_col = 8, 
+  fontsize = 12)
+
+ggsave(ht, filename = "Govaere Heatmap.png", width = 12, height = 8, dpi = 400)
+
+```
+
+
+
+
+
+
+
+
