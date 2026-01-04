@@ -12,4 +12,13 @@ Patient stratification workflow
 3.0_Visualization Heatmaps_Patient Stratification.Rmd 
 3.1 Visualization Heatmaps_Gene modules.Rmd          
 3.2_Circular heatmap patient subgroups.Rmd
-4.0_Multinomial regression 6 patient subgroups.R              
+4.0_Multinomial regression 6 patient subgroups.R         
+
+Published: https://www.nature.com/articles/s41598-024-74098-w
+
+<img width="778" height="543" alt="Screenshot 2026-01-04 at 3 10 41 p m" src="https://github.com/user-attachments/assets/6f5d3f16-5f0b-4b38-acc0-f55f5b3a0464" />
+
+<img width="578" height="582" alt="Screenshot 2026-01-04 at 3 10 59 p m" src="https://github.com/user-attachments/assets/635c6d62-51d8-4ac7-96de-f1fa90ecd8a6" />
+
+
+
